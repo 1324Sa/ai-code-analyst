@@ -1,0 +1,625 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Code Analyst - AST, Taint Path & Security Auditor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Vis.js Network -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+    <!-- CodeMirror for Syntax Highlighting & Line Numbers -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
+
+    <style>
+        #mynetwork {
+            width: 100%;
+            height: 380px;
+            background-color: #020617;
+            border-radius: 0.5rem;
+        }
+        .CodeMirror {
+            height: 220px;
+            font-size: 13px;
+            border-radius: 0.5rem;
+        }
+        .cm-diff-editor .CodeMirror {
+            height: 180px;
+        }
+        /* Custom highlight style for CodeMirror node jump */
+        .cm-highlight-line {
+            background-color: rgba(99, 102, 241, 0.3) !important;
+            border-left: 3px solid #6366f1;
+        }
+        /* Diff highlight styles */
+        .diff-removed { background-color: rgba(239, 68, 68, 0.25) !important; }
+        .diff-added { background-color: rgba(34, 197, 94, 0.25) !important; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <header class="border-b border-slate-800 pb-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold tracking-wide">AI Code Analyst - AST, Taint Flow & Security Auditor</h1>
+            <div class="space-x-2">
+                <button id="exportMdBtn" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded border border-slate-700 transition-colors">Export Markdown</button>
+                <button id="exportJsonBtn" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded border border-slate-700 transition-colors">Export JSON</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Left Column: Settings & Input -->
+            <div class="space-y-4">
+                <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700">
+                    <h2 class="text-sm font-semibold mb-3 text-slate-300">Configuration & Source Code Input</h2>
+                    <div class="grid grid-cols-2 gap-3 text-sm mb-3">
+                        <div>
+                            <label class="block text-slate-400 mb-1 text-xs">Language</label>
+                            <select id="language" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none text-xs">
+                                <option value="Python">Python</option>
+                                <option value="JavaScript">JavaScript</option>
+                                <option value="C++">C++ / C</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1 text-xs">Security Standard</label>
+                            <select id="securityProfile" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none text-xs">
+                                <option value="OWASP Top 10">OWASP Top 10</option>
+                                <option value="NIST SP 800-53 Guidelines">NIST SP 800-53 Guidelines</option>
+                                <option value="PCI-DSS Compliance">PCI-DSS Compliance</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1 text-xs">Potential Use Case</label>
+                            <select id="useCase" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none text-xs">
+                                <option value="Authentication Service">Authentication Service</option>
+                                <option value="Embedded / IoT Firmware">Embedded / IoT Firmware</option>
+                                <option value="Fintech Platform">Fintech Platform</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1 text-xs">Suggestion Focus</label>
+                            <select id="suggestionFocus" class="w-full bg-slate-900 border border-slate-700 rounded p-2 focus:outline-none text-xs">
+                                <option value="Security Focus">Security Focus</option>
+                                <option value="Clean Code & Maintainability">Clean Code & Maintainability</option>
+                                <option value="Performance Optimization">Performance Optimization</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Drag & Drop Area -->
+                    <div id="dropZone" class="mb-2 p-2 border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded text-center cursor-pointer text-xs text-slate-400 transition-colors">
+                        Drag & Drop code file here or <span class="text-indigo-400 font-semibold">click to select</span>
+                        <input type="file" id="fileInput" class="hidden" />
+                    </div>
+
+                    <!-- CodeMirror Editor Container -->
+                    <textarea id="codeInput"></textarea>
+
+                    <button id="analyzeBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 font-semibold py-2.5 rounded-lg transition-colors mt-3 text-sm">
+                        Analyze Code
+                    </button>
+                </div>
+
+                <!-- Classified Security Findings & Counter Badges (Step 2) -->
+                <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-3">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-sm font-semibold text-slate-300">Auditor Findings</h2>
+                            <!-- Counter Badges -->
+                            <div class="flex space-x-1.5 text-[11px]" id="counterBadges">
+                                <button data-filter="ALL" class="badge-filter px-2 py-0.5 rounded bg-slate-700 text-slate-200 border border-slate-600 font-semibold hover:bg-slate-600">All <span id="cntAll">0</span></button>
+                                <button data-filter="Critical" class="badge-filter px-2 py-0.5 rounded bg-red-950/80 text-red-400 border border-red-800 font-semibold hover:bg-red-900">Critical <span id="cntCritical">0</span></button>
+                                <button data-filter="High" class="badge-filter px-2 py-0.5 rounded bg-orange-950/80 text-orange-400 border border-orange-800 font-semibold hover:bg-orange-900">High <span id="cntHigh">0</span></button>
+                                <button data-filter="Medium" class="badge-filter px-2 py-0.5 rounded bg-yellow-950/80 text-yellow-400 border border-yellow-800 font-semibold hover:bg-yellow-900">Med <span id="cntMedium">0</span></button>
+                                <button data-filter="Low" class="badge-filter px-2 py-0.5 rounded bg-blue-950/80 text-blue-400 border border-blue-800 font-semibold hover:bg-blue-900">Low <span id="cntLow">0</span></button>
+                            </div>
+                        </div>
+
+                        <!-- Search & Severity Filter Bar -->
+                        <div class="flex gap-2">
+                            <input type="text" id="searchInput" placeholder="Search vulnerability, key, or category..." class="flex-1 bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 text-slate-200">
+                            <select id="severitySelect" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs focus:outline-none text-slate-300">
+                                <option value="ALL">All Severities</option>
+                                <option value="Critical">Critical</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="findingsContainer" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        <div class="bg-slate-900 p-2.5 rounded border border-slate-800 text-xs text-slate-400">Run analysis to discover classified security vulnerabilities...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Interactive Visual Graph -->
+            <div class="space-y-4">
+                <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-sm font-semibold text-slate-300">Interactive Taint Flow Graph</h2>
+                        <span class="text-xs text-slate-400 italic">Click node to trace Taint Path</span>
+                    </div>
+                    
+                    <!-- Graph Canvas -->
+                    <div id="mynetwork"></div>
+
+                    <!-- Graph Legend -->
+                    <div class="flex flex-wrap gap-4 text-xs text-slate-400 pt-2 border-t border-slate-800">
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-3 h-3 rounded bg-red-800 border border-red-500 inline-block"></span>
+                            <span>Sensitive Variable</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-3 h-3 rounded bg-indigo-800 border border-indigo-400 inline-block"></span>
+                            <span>Function / Sink</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-3 h-3 rounded bg-slate-800 border border-slate-600 inline-block"></span>
+                            <span>Standard Variable</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-3 h-3 rounded bg-amber-500 border border-amber-300 inline-block"></span>
+                            <span>Taint Trace</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800/60 p-4 rounded-xl border border-slate-700">
+                    <h2 class="text-sm font-semibold mb-2 text-slate-300">AI Summary & Insights</h2>
+                    <p id="summaryOutput" class="text-xs text-slate-400">Run analysis to view findings...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Apply Fix / Diff View Modal (Step 2) -->
+    <div id="diffModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-5 space-y-4 shadow-2xl">
+            <div class="flex justify-between items-start border-b border-slate-800 pb-3">
+                <div>
+                    <h3 id="diffModalTitle" class="text-base font-bold text-slate-100">Proposed Vulnerability Remediation</h3>
+                    <p id="diffModalCategory" class="text-xs text-indigo-400 font-mono"></p>
+                </div>
+                <button id="closeDiffModal" class="text-slate-400 hover:text-slate-100 text-lg font-bold">&times;</button>
+            </div>
+
+            <div class="space-y-2">
+                <p id="diffModalDesc" class="text-xs text-slate-300 leading-relaxed"></p>
+                
+                <div class="grid grid-cols-2 gap-3 pt-2">
+                    <div>
+                        <div class="text-[11px] font-semibold text-red-400 mb-1 flex items-center gap-1">
+                            <span>Current Code</span>
+                        </div>
+                        <div class="cm-diff-editor border border-red-900/50 rounded overflow-hidden">
+                            <textarea id="diffCurrentCode"></textarea>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-[11px] font-semibold text-emerald-400 mb-1 flex items-center gap-1">
+                            <span>Remediated Code (Proposed Patch)</span>
+                        </div>
+                        <div class="cm-diff-editor border border-emerald-900/50 rounded overflow-hidden">
+                            <textarea id="diffFixedCode"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-3 border-t border-slate-800">
+                <button id="cancelPatchBtn" class="bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 px-4 py-2 rounded transition-colors">Cancel</button>
+                <button id="applyPatchBtn" class="bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white px-4 py-2 rounded transition-colors flex items-center gap-1">
+                    Apply Patch to Editor
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. Initialize CodeMirror Main Editor
+        const editor = CodeMirror.fromTextArea(document.getElementById('codeInput'), {
+            lineNumbers: true,
+            mode: 'python',
+            theme: 'dracula'
+        });
+        editor.setValue(`def process_auth_pipeline(raw_payload, secret_key):\n    user_token = "sk_live_992120301"\n    session_token = user_token\n    audit_log(session_token)`);
+
+        // Initialize Modal Editors for Diff View
+        const diffCurrentCm = CodeMirror.fromTextArea(document.getElementById('diffCurrentCode'), {
+            lineNumbers: true, mode: 'python', theme: 'dracula', readOnly: true
+        });
+        const diffFixedCm = CodeMirror.fromTextArea(document.getElementById('diffFixedCode'), {
+            lineNumbers: true, mode: 'python', theme: 'dracula', readOnly: true
+        });
+
+        // Handle Language Dropdown Change
+        document.getElementById('language').addEventListener('change', (e) => {
+            const lang = e.target.value.toLowerCase();
+            const mode = lang.includes('python') ? 'python' : lang.includes('javascript') ? 'javascript' : 'text/x-c++src';
+            editor.setOption('mode', mode);
+            diffCurrentCm.setOption('mode', mode);
+            diffFixedCm.setOption('mode', mode);
+        });
+
+        // 2. Drag & Drop File Handling
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-500'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-indigo-500'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-indigo-500');
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        });
+
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => editor.setValue(e.target.result);
+            reader.readAsText(file);
+        }
+
+        // 3. Step 1: Vis.js Graph Engine with Line Mapping & BFS Taint Tracing
+        let network = null;
+        let lastAnalysisResult = null;
+        let lineHighlightMarker = null;
+        let activeFilterSeverity = 'ALL';
+        let activeFixCode = null;
+
+        function renderVisualGraph(flowEdges) {
+            const container = document.getElementById('mynetwork');
+            const nodeMap = new Map();
+
+            flowEdges.forEach(edge => {
+                if (!nodeMap.has(edge.from)) nodeMap.set(edge.from, { id: edge.from, lines: new Set() });
+                if (!nodeMap.has(edge.to)) nodeMap.set(edge.to, { id: edge.to, lines: new Set() });
+                
+                if (edge.line) {
+                    nodeMap.get(edge.from).lines.add(edge.line);
+                    nodeMap.get(edge.to).lines.add(edge.line);
+                }
+            });
+
+            const nodesArray = Array.from(nodeMap.values()).map(nodeObj => {
+                const nodeName = nodeObj.id;
+                const isSensitive = ['token', 'secret', 'key', 'password', 'auth', 'card', 'payload'].some(s => nodeName.toLowerCase().includes(s));
+                const isFunction = nodeName.includes('()');
+                const lineStr = Array.from(nodeObj.lines).sort((a,b)=>a-b).join(',');
+
+                let bgColor = '#1e293b';
+                let borderColor = '#475569';
+
+                if (isSensitive) {
+                    bgColor = '#991b1b';
+                    borderColor = '#f87171';
+                } else if (isFunction) {
+                    bgColor = '#3730a3';
+                    borderColor = '#818cf8';
+                }
+
+                return {
+                    id: nodeName,
+                    label: lineStr ? `${nodeName}\n[L${lineStr}]` : nodeName,
+                    shape: isFunction ? 'ellipse' : 'box',
+                    lines: Array.from(nodeObj.lines),
+                    origBg: bgColor,
+                    origBorder: borderColor,
+                    color: { background: bgColor, border: borderColor },
+                    font: { color: '#f8fafc', face: 'monospace', size: 11 }
+                };
+            });
+
+            const edgesArray = flowEdges.map(edge => ({
+                from: edge.from,
+                to: edge.to,
+                label: edge.type,
+                arrows: { to: { enabled: true, scaleFactor: 0.8 } },
+                color: { color: '#64748b', highlight: '#f59e0b' },
+                font: { color: '#94a3b8', size: 9, align: 'middle' }
+            }));
+
+            const nodes = new vis.DataSet(nodesArray);
+            const edges = new vis.DataSet(edgesArray);
+
+            const data = { nodes, edges };
+            const options = {
+                physics: { enabled: true, barnesHut: { springLength: 120 } },
+                interaction: { hover: true, dragNodes: true, zoomView: true, dragView: true }
+            };
+
+            if (network) network.destroy();
+            network = new vis.Network(container, data, options);
+
+            network.on("click", function (params) {
+                if (params.nodes.length > 0) {
+                    const selectedNodeId = params.nodes[0];
+                    const selectedNodeObj = nodes.get(selectedNodeId);
+
+                    if (selectedNodeObj && selectedNodeObj.lines && selectedNodeObj.lines.length > 0) {
+                        const targetLine = selectedNodeObj.lines[0] - 1;
+                        editor.setCursor({ line: targetLine, ch: 0 });
+                        
+                        if (lineHighlightMarker) lineHighlightMarker.clear();
+                        lineHighlightMarker = editor.addLineClass(targetLine, 'background', 'cm-highlight-line');
+                        
+                        setTimeout(() => {
+                            if (lineHighlightMarker) lineHighlightMarker.clear();
+                        }, 2500);
+                    }
+
+                    const taintedNodes = new Set([selectedNodeId]);
+                    const queue = [selectedNodeId];
+
+                    while (queue.length > 0) {
+                        const current = queue.shift();
+                        flowEdges.forEach(e => {
+                            if (e.from === current && !taintedNodes.has(e.to)) {
+                                taintedNodes.add(e.to);
+                                queue.push(e.to);
+                            }
+                            if (e.to === current && !taintedNodes.has(e.from)) {
+                                taintedNodes.add(e.from);
+                                queue.push(e.from);
+                            }
+                        });
+                    }
+
+                    nodes.forEach(n => {
+                        if (taintedNodes.has(n.id)) {
+                            nodes.update({
+                                id: n.id,
+                                color: { background: '#f59e0b', border: '#fbbf24' },
+                                font: { color: '#0f172a' }
+                            });
+                        } else {
+                            nodes.update({
+                                id: n.id,
+                                color: { background: '#0f172a', border: '#1e293b' },
+                                font: { color: '#475569' }
+                            });
+                        }
+                    });
+                } else {
+                    nodes.forEach(n => {
+                        nodes.update({
+                            id: n.id,
+                            color: { background: n.origBg, border: n.origBorder },
+                            font: { color: '#f8fafc' }
+                        });
+                    });
+                }
+            });
+        }
+
+        // 4. Step 2 Engine: Badges Counter, Filters & Findings Renderer
+        function updateBadgesAndFilter(findings) {
+            if (!findings) findings = [];
+
+            // Calculate Counter Metrics
+            const counts = { ALL: findings.length, Critical: 0, High: 0, Medium: 0, Low: 0 };
+            findings.forEach(f => {
+                const sev = f.severity ? f.severity.charAt(0).toUpperCase() + f.severity.slice(1).toLowerCase() : 'Low';
+                if (counts[sev] !== undefined) counts[sev]++;
+            });
+
+            document.getElementById('cntAll').innerText = counts.ALL;
+            document.getElementById('cntCritical').innerText = counts.Critical;
+            document.getElementById('cntHigh').innerText = counts.High;
+            document.getElementById('cntMedium').innerText = counts.Medium;
+            document.getElementById('cntLow').innerText = counts.Low;
+
+            // Apply Filters
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = findings.filter(item => {
+                const itemSev = item.severity ? item.severity.toLowerCase() : '';
+                const matchesSeverity = activeFilterSeverity === 'ALL' || itemSev === activeFilterSeverity.toLowerCase();
+                const matchesSearch = !searchTerm || 
+                    item.title.toLowerCase().includes(searchTerm) || 
+                    item.category.toLowerCase().includes(searchTerm) || 
+                    item.description.toLowerCase().includes(searchTerm);
+
+                return matchesSeverity && matchesSearch;
+            });
+
+            renderFindingsList(filtered);
+        }
+
+        function renderFindingsList(findings) {
+            const container = document.getElementById('findingsContainer');
+            container.innerHTML = '';
+
+            if (!findings || findings.length === 0) {
+                container.innerHTML = `<div class="bg-slate-900 p-3 rounded border border-slate-800 text-xs text-slate-400">No findings matching current filter criteria.</div>`;
+                return;
+            }
+
+            findings.forEach((item, idx) => {
+                let badgeColor = 'bg-slate-700 text-slate-200';
+                const sevUpper = (item.severity || 'LOW').toUpperCase();
+                if (sevUpper === 'CRITICAL') badgeColor = 'bg-red-900/80 text-red-300 border border-red-700';
+                else if (sevUpper === 'HIGH') badgeColor = 'bg-orange-900/80 text-orange-300 border border-orange-700';
+                else if (sevUpper === 'MEDIUM') badgeColor = 'bg-yellow-900/80 text-yellow-300 border border-yellow-700';
+                else badgeColor = 'bg-blue-900/80 text-blue-300 border border-blue-700';
+
+                const div = document.createElement('div');
+                div.className = 'bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-2 hover:border-slate-700 transition-colors';
+                
+                const hasFix = !!item.proposed_fix;
+                
+                div.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="text-[10px] px-2 py-0.5 rounded font-semibold ${badgeColor}">${sevUpper}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">${item.category || 'Security standard'}</span>
+                    </div>
+                    <div class="text-xs font-semibold text-slate-200">${item.title}</div>
+                    <div class="text-[11px] text-slate-400 leading-snug">${item.description}</div>
+                    ${hasFix ? `
+                        <div class="pt-1 flex justify-end">
+                            <button onclick="openDiffModal(${idx})" class="bg-indigo-900/60 hover:bg-indigo-800 border border-indigo-700 text-indigo-300 text-[11px] px-2.5 py-1 rounded transition-colors flex items-center gap-1 font-semibold">
+                                View Patch / Diff
+                            </button>
+                        </div>
+                    ` : ''}
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Filter Event Listeners
+        document.querySelectorAll('.badge-filter').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const target = e.currentTarget;
+                activeFilterSeverity = target.getAttribute('data-filter');
+                document.getElementById('severitySelect').value = activeFilterSeverity;
+                if (lastAnalysisResult) updateBadgesAndFilter(lastAnalysisResult.findings);
+            });
+        });
+
+        document.getElementById('severitySelect').addEventListener('change', (e) => {
+            activeFilterSeverity = e.target.value;
+            if (lastAnalysisResult) updateBadgesAndFilter(lastAnalysisResult.findings);
+        });
+
+        document.getElementById('searchInput').addEventListener('input', () => {
+            if (lastAnalysisResult) updateBadgesAndFilter(lastAnalysisResult.findings);
+        });
+
+        // 5. Step 2: "Apply Fix" Diff View Modal Logic
+        const diffModal = document.getElementById('diffModal');
+
+        window.openDiffModal = function(findingIndex) {
+            if (!lastAnalysisResult || !lastAnalysisResult.findings[findingIndex]) return;
+            const finding = lastAnalysisResult.findings[findingIndex];
+
+            document.getElementById('diffModalTitle').innerText = finding.title;
+            document.getElementById('diffModalCategory').innerText = `${finding.severity.toUpperCase()} • ${finding.category}`;
+            document.getElementById('diffModalDesc').innerText = finding.description;
+
+            const currentCode = editor.getValue();
+            const proposedCode = finding.proposed_fix || currentCode;
+            activeFixCode = proposedCode;
+
+            diffModal.classList.remove('hidden');
+            diffModal.classList.add('flex');
+
+            setTimeout(() => {
+                diffCurrentCm.setValue(currentCode);
+                diffFixedCm.setValue(proposedCode);
+                diffCurrentCm.refresh();
+                diffFixedCm.refresh();
+            }, 50);
+        };
+
+        function closeDiffModal() {
+            diffModal.classList.add('hidden');
+            diffModal.classList.remove('flex');
+            activeFixCode = null;
+        }
+
+        document.getElementById('closeDiffModal').addEventListener('click', closeDiffModal);
+        document.getElementById('cancelPatchBtn').addEventListener('click', closeDiffModal);
+
+        document.getElementById('applyPatchBtn').addEventListener('click', () => {
+            if (activeFixCode) {
+                editor.setValue(activeFixCode);
+                closeDiffModal();
+                alert('Patch successfully applied to the editor!');
+            }
+        });
+
+        // 6. Analyze Button Listener
+        document.getElementById('analyzeBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('analyzeBtn');
+            const code = editor.getValue();
+
+            if (!code.trim()) {
+                alert('Please paste or upload code to analyze.');
+                return;
+            }
+
+            btn.innerText = 'Executing AST & Taint Analysis...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/v1/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: code,
+                        language: document.getElementById('language').value,
+                        security_profile: document.getElementById('securityProfile').value,
+                        use_case: document.getElementById('useCase').value,
+                        suggestion_focus: document.getElementById('suggestionFocus').value
+                    })
+                });
+
+                const data = await res.json();
+                lastAnalysisResult = data;
+
+                if (data.status === "ERROR") {
+                    alert(`Analysis Error: ${data.error_message}`);
+                    return;
+                }
+
+                // Sample mock patch generation if backend does not return `proposed_fix`
+                if (data.findings) {
+                    data.findings.forEach(f => {
+                        if (!f.proposed_fix) {
+                            f.proposed_fix = code.replace(/user_token = "sk_live_992120301"/g, 'user_token = os.getenv("SECRET_USER_TOKEN")');
+                        }
+                    });
+                }
+
+                updateBadgesAndFilter(data.findings);
+                if (data.data_flow && data.data_flow.length > 0) renderVisualGraph(data.data_flow);
+                document.getElementById('summaryOutput').innerText = `Analysis complete! Extracted ${data.execution_summary.total_edges} flow edges and flagged ${data.execution_summary.total_findings} security items.`;
+
+            } catch (err) {
+                console.error(err);
+                alert('Failed to connect to backend server.');
+            } finally {
+                btn.innerText = 'Analyze Code';
+                btn.disabled = false;
+            }
+        });
+
+        // 7. Export Handlers
+        document.getElementById('exportJsonBtn').addEventListener('click', () => {
+            if (!lastAnalysisResult) return alert("Run an analysis first!");
+            const blob = new Blob([JSON.stringify(lastAnalysisResult, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `security_report_${Date.now()}.json`;
+            a.click();
+        });
+
+        document.getElementById('exportMdBtn').addEventListener('click', () => {
+            if (!lastAnalysisResult) return alert("Run an analysis first!");
+            let md = `# Security Audit Report\n\n`;
+            md += `**Language:** ${lastAnalysisResult.execution_summary.language}\n`;
+            md += `**Security Profile:** ${lastAnalysisResult.execution_summary.security_profile}\n\n`;
+            md += `## Findings\n\n`;
+            lastAnalysisResult.findings.forEach(f => {
+                md += `### [${f.severity}] ${f.title}\n`;
+                md += `- **Category:** ${f.category}\n`;
+                md += `- **Description:** ${f.description}\n\n`;
+            });
+            const blob = new Blob([md], { type: 'text/markdown' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `security_report_${Date.now()}.md`;
+            a.click();
+        });
+    </script>
+</body>
+</html>
