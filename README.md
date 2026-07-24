@@ -32,3 +32,25 @@ Unlike traditional static analysis tools that rely on simplistic pattern matchin
 ---
 
 ## 🏗️ Architecture & Engine Overview
+[ Untrusted Code / Source File ]
+│
+▼
+┌─────────────────────────────┐
+│   AST & Symbolic Parser     │  <-- Lexical & Semantic Parsing
+└──────────────┬──────────────┘
+│
+▼
+┌─────────────────────────────┐
+│   Interprocedural Taint     │  <-- Traces Sources -> Sanitizers -> Sinks
+│      Flow Analysis          │
+└──────────────┬──────────────┘
+│
+▼
+┌─────────────────────────────┐
+│   Compliance Engine         │  <-- Correlates CWE / PCI-DSS / NIST
+└──────────────┬──────────────┘
+│
+▼
+┌─────────────────────────────┐
+│   React + Tailwind UI       │  <-- Interactive Taint Graph & Diffs
+└─────────────────────────────┘
