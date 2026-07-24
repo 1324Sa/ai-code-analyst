@@ -1,0 +1,23 @@
+## 🚀 Quick Start
+
+### 1. Prerequisites
+* **Python 3.10+**
+* **Node.js 18+** & `npm` / `yarn`
+
+### 2. Installation & Setup
+
+```bash
+# Clone the repository
+git clone [https://github.com/1324Sa/ai-code-analyst.git](https://github.com/1324Sa/ai-code-analyst.git)
+cd ai-code-analyst
+
+# Setup Python Virtual Environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
+# Install Dependencies
+pip install -r requirements.txt
+npm install
