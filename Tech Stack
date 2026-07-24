@@ -1,0 +1,6 @@
+💻 Tech Stack
+Backend & Security Engine: Python 3.10+, AST, Tree-Sitter, Symbolic Execution libraries.
+
+Frontend Interface: React 18, TypeScript, Tailwind CSS, Lucide Icons.
+
+Graphing & Visualization: React Flow / Custom Canvas Data-Flow Renderer.
