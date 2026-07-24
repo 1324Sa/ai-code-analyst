@@ -1,0 +1,5 @@
+# Execute static AST analysis on a target file
+python ast_analyzer.py --target ./vulnerable_service.py
+
+# Launch the React UI Development Server
+npm run dev
